@@ -1,0 +1,362 @@
+#include "BankTransaction.h"
+#include "userAccount.h"
+#define userACCOUNT_H
+#include<account.h>
+#include <string>
+#include<cstring>
+#include <mysql.h>
+#include <cstdlib>
+#include <iomanip>
+#include <sstream>
+using std::string;
+using namespace std;
+class userAccount
+{
+public:
+   static const int MAX_SIZE = 30;
+
+   userAccount(int = 0, string = "",
+      string = "", double = 0.0);
+   ~userAccount();
+
+   void setAccountNumber(int);
+   void setLastName(string);
+   void setFirstName(string);
+   void setBalance(double);
+
+   int getAccountNumber() const;
+   string getFirstName() const;
+   string getLastName() const;
+   double getBalance() const;
+
+private:
+   int accountNumber;
+   char firstName[MAX_SIZE];
+   char lastName[MAX_SIZE];
+   double balance;
+};
+
+#endif  
+userAccount::userAccount(int accno, string fname,
+   string lname, double bal)
+{
+   setAccountNumber(accno);
+   setFirstName(fname);
+   setLastName(lname);
+   setBalance(bal);
+}
+
+void userAccount::setAccountNumber(int accno)
+{
+   accountNumber = accno;
+}
+
+void userAccount::setLastName(string lname)
+{
+   const char* ln = lname.data();
+   int len = lname.size();
+   len = (len < MAX_SIZE ? len : MAX_SIZE - 1);
+   strncpy(lastName, ln, len);
+   lastName[len] = '\0';
+}
+
+void userAccount::setFirstName(string fname)
+{
+   const char* fn = fname.data();
+   int len = fname.size();
+   len = (len < MAX_SIZE ? len : MAX_SIZE - 1);
+   strncpy(firstName, fn, len);
+   firstName[len] = '\0';
+}
+
+void userAccount::setBalance(double bal)
+{
+   balance = bal;
+}
+
+int userAccount::getAccountNumber() const
+{
+   return accountNumber;
+}
+
+string userAccount::getFirstName() const
+{
+   return firstName;
+}
+
+string userAccount::getLastName() const
+{
+   return lastName;
+}
+
+double userAccount::getBalance() const
+{
+   return balance;
+}
+
+userAccount::~userAccount()
+{
+}
+class BankTransaction
+{
+public:
+   BankTransaction(const string = "localhost",
+      const string = "",
+   const string = "", const string = "");
+   ~BankTransaction();
+   void createAccount(BankAccount*);
+   void closeAccount(int);
+   void receive(int, double);
+   void send(int, double);
+   userAccount* getAccount(int);
+   void printAllAccounts();
+   void message(string);
+
+private:
+   MYSQL* db_conn;
+};
+
+#endif   // BANKTRANSACTION_H
+
+BankTransaction::BankTransaction(const string HOST,
+   const string USER, const string PASSWORD,
+   const string DATABASE)
+{
+   db_conn = mysql_init(NULL);
+   if(!db_conn)
+      message("MySQL initialization failed! ");
+   db_conn = mysql_real_connect(db_conn, HOST.c_str(),
+      USER.c_str(), PASSWORD.c_str(), DATABASE.c_str(), 0,
+         NULL, 0);
+   if(!db_conn)
+      message("Connection Error! ");
+}
+
+BankTransaction::~BankTransaction()
+{
+   mysql_close(db_conn);
+}
+
+userAccount* BankTransaction::getAccount(int acno)
+{
+   userAccount* b = NULL;
+   MYSQL_RES* rset;
+   MYSQL_ROW row;
+   stringstream sql;
+   sql << "SELECT * FROM bank_account WHERE acc_no="
+      << acno;
+
+   if(!mysql_query(db_conn, sql.str().c_str())) {
+      b = new BankAccount();
+      rset = mysql_use_result(db_conn);
+      row = mysql_fetch_row(rset);
+      b->setAccountNumber(atoi(row[0]));
+      b->setFirstName(row[1]);
+      b->setLastName(row[2]);
+      b->setBalance(atof(row[3]));
+   }
+   mysql_free_result(rset);
+   return b;
+}
+
+void BankTransaction::withdraw(int acno, double amount)
+{
+   BankAccount* b = getAccount(acno);
+   if(b != NULL) {
+      if(b->getBalance() < amount)
+         message("Cannot withdraw. Try lower amount.");
+      else {
+         b->setBalance(b->getBalance() - amount);
+         stringstream sql;
+         sql << "UPDATE bank_account SET balance="
+            << b->getBalance()
+            << " WHERE acc_no=" << acno;
+         if(!mysql_query(db_conn, sql.str().c_str())) {
+            message("Cash withdraw successful.
+               Balance updated.");
+         } else {
+            message("Cash deposit unsuccessful!
+               Update failed");
+         }
+      }
+   }
+}
+
+void BankTransaction::deposit(int acno, double amount)
+{
+   stringstream sql;
+   sql << "UPDATE bank_account SET balance=balance+" << amount
+      << " WHERE acc_no=" << acno;
+   if(!mysql_query(db_conn, sql.str().c_str())) {
+      message("Cash deposit successful. Balance updated.");
+   } else {
+      message("Cash deposit unsuccessful! Update failed");
+   }
+}
+
+void BankTransaction::createAccount(userAccount* ba)
+{
+   stringstream ss;
+   ss << "INSERT INTO bank_account(acc_no, fname, lname,
+         balance)"
+      << "values (" << ba->getAccountNumber() << ", '"
+         << ba->getFirstName() + "','"
+         << ba->getLastName() << "',"
+         << ba->getBalance() << ")";
+   if(mysql_query(db_conn, ss.str().c_str()))
+      message("Failed to create account! ");
+   else
+      message("Account creation successful.");
+}
+
+void BankTransaction::closeAccount(int acno)
+{
+   stringstream ss;
+   ss << "DELETE FROM bank_account WHERE acc_no="
+      << acno;
+   if(mysql_query(db_conn, ss.str().c_str()))
+      message("Failed to close account! ");
+   else
+      message("Account close successful.");
+}
+
+void BankTransaction::message(string msg)
+{
+   cout << msg << endl;
+}
+void BankTransaction::printAllAccounts()
+{
+   MYSQL_RES* rset;
+   MYSQL_ROW rows;
+   string sql = "SELECT * FROM bank_account";
+   if(mysql_query(db_conn, sql.c_str())) {
+      message("Error printing all accounts! ");
+      return;
+   }
+
+   rset = mysql_use_result(db_conn);
+
+   cout << left << setw(10) << setfill('-') << left << '+'
+        << setw(21) << setfill('-') << left << '+'
+        << setw(21)
+        << setfill('-') << left << '+' << setw(21)
+        << setfill('-')
+        << '+' << '+' << endl;
+   cout << setfill(' ') << '|' << left << setw(9)
+        << "Account"
+        << setfill(' ') << '|' << setw(20) << "First Name"
+        << setfill(' ') << '|' << setw(20) << "Last Name"
+        << setfill(' ') << '|' << right << setw(20)
+        << "Balance" << '|' << endl;
+
+   cout << left << setw(10) << setfill('-') << left
+       << '+' << setw(21) << setfill('-') << left << '+'
+       << setw(21)
+       << setfill('-') << left << '+' << setw(21) << setfill('-')
+       << '+' << '+' << endl;
+   if(rset) {
+      while((rows = mysql_fetch_row(rset))) {
+         cout << setfill(' ') << '|' << left << setw(9) << rows[0]
+              << setfill(' ') << '|' << setw(20) << rows[1]
+              << setfill(' ') << '|' << setw(20) << rows[2]
+              << setfill(' ') << '|' << right << setw(20)
+              << rows[3] << '|' << endl;
+      }
+      cout << left << setw(10) << setfill('-') << left
+           << '+' << setw(21) << setfill('-') << left << '+'
+           << setw(21)
+           << setfill('-') << left << '+' << setw(21)
+           << setfill('-')
+           << '+' << '+' << endl;
+   }
+   mysql_free_result(rset);
+}
+int mainMenu()
+{
+   cout << "\nMenu Options" << endl
+        << "1 - Print All Account"
+        << endl << "2 - Open New Account" << endl
+        << "3 - Withdraw" << endl << "4 - Deposit"
+        << endl << "5 - Close Account" << endl
+        << "6 - End Transaction" << endl;
+   int ch;
+   cin >> ch;
+   return ch;
+}
+
+int main(int argc, char** argv)
+{
+   BankTransaction* bt =
+      new BankTransaction("localhost", "root",
+                          "passwd123", "mybank");
+
+   int choice;
+   int acno;
+   string fname, lname;
+   double bal;
+
+   while(1) {
+      choice = mainMenu();
+      if(choice == END)
+         break;
+      switch(choice) {
+      case PRINT:
+         bt->printAllAccounts();
+         break;
+      case NEW:
+         cout << "\nEnter account no, first name,
+                             last name, balance: "
+              << endl << "? ";
+         cin >> acno;
+         cin >> fname;
+         cin >> lname;
+         cin >> bal;
+         if(acno < 1) {
+            cout << "Invalid account number." << endl;
+            break;
+         }
+         bt->createAccount(new userAccount(acno, fname, lname,
+                                           bal));
+         break;
+      case send:
+         cout << "\nEnter account no, amount to send "
+              << endl << "? ";
+         cin >> acno;
+         cin >> bal;
+         if(bal < 0) {
+            cout << "Invalid amount." << endl;
+            break;
+         }
+         bt->send(acno, bal);
+         break;
+      case receive:
+         cout << "\nEnter account no, amount to receive "
+              << endl << "? ";
+         cin >> acno;
+         cin >> bal;
+         if(bal < 0) {
+            cout << "Invalid amount." << endl;
+            break;
+         }
+         bt->receive(acno, bal);
+         break;
+     case CLOSE:
+         cout << "\nEnter account no to close account "
+              << endl << "? ";
+         cin >> acno;
+         bt->closeAccount(acno);
+         break;
+      default:
+         cerr << "Invalid choice!" << endl;
+         break;
+      }
+   }
+   
+   if(receive<=10000){
+   cout<<"no fees";}
+   elseif(receive<=100000){
+   cout<<'200 for fees';}
+   else(receive>=100000){
+   cout<<"1000 for fees"}
+   return 0;
+}
